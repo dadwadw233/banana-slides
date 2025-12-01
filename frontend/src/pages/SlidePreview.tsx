@@ -10,6 +10,9 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  X,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Button, Loading, Modal, Textarea, useToast, useConfirm } from '@/components/shared';
 import { SlideCard } from '@/components/preview/SlideCard';
@@ -46,6 +49,15 @@ export const SlidePreview: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [imageVersions, setImageVersions] = useState<ImageVersion[]>([]);
   const [showVersionMenu, setShowVersionMenu] = useState(false);
+  const [selectedContextImages, setSelectedContextImages] = useState<{
+    useTemplate: boolean;
+    descImageUrls: string[];
+    uploadedFiles: File[];
+  }>({
+    useTemplate: false,
+    descImageUrls: [],
+    uploadedFiles: [],
+  });
   const { show, ToastContainer } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
 
@@ -148,10 +160,43 @@ export const SlidePreview: React.FC = () => {
     }
   };
 
+  // 从描述内容中提取图片URL
+  const extractImageUrlsFromDescription = (descriptionContent: any): string[] => {
+    if (!descriptionContent) return [];
+    
+    const text = descriptionContent.text || 
+                 (descriptionContent.text_content?.join('\n') || '');
+    
+    if (!text) return [];
+    
+    // 匹配 markdown 图片语法: ![](url) 或 ![alt](url)
+    const pattern = /!\[.*?\]\((.*?)\)/g;
+    const matches = [];
+    let match;
+    
+    while ((match = pattern.exec(text)) !== null) {
+      const url = match[1].trim();
+      // 只保留有效的HTTP/HTTPS URL
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        matches.push(url);
+      }
+    }
+    
+    return matches;
+  };
+
   const handleEditPage = () => {
     setEditPrompt('');
     setIsOutlineExpanded(false);
     setIsDescriptionExpanded(false);
+    
+    // 初始化上下文图片选择
+    setSelectedContextImages({
+      useTemplate: false,
+      descImageUrls: [],
+      uploadedFiles: [],
+    });
+    
     setIsEditModalOpen(true);
   };
 
@@ -160,8 +205,34 @@ export const SlidePreview: React.FC = () => {
     
     const page = currentProject.pages[selectedIndex];
     if (!page.id) return;
-    await editPageImage(page.id, editPrompt);
+    
+    await editPageImage(
+      page.id,
+      editPrompt,
+      {
+        useTemplate: selectedContextImages.useTemplate,
+        descImageUrls: selectedContextImages.descImageUrls,
+        uploadedFiles: selectedContextImages.uploadedFiles.length > 0 
+          ? selectedContextImages.uploadedFiles 
+          : undefined,
+      }
+    );
     setIsEditModalOpen(false);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setSelectedContextImages((prev) => ({
+      ...prev,
+      uploadedFiles: [...prev.uploadedFiles, ...files],
+    }));
+  };
+
+  const removeUploadedFile = (index: number) => {
+    setSelectedContextImages((prev) => ({
+      ...prev,
+      uploadedFiles: prev.uploadedFiles.filter((_, i) => i !== index),
+    }));
   };
 
   const handleExport = async (type: 'pptx' | 'pdf') => {
@@ -572,6 +643,117 @@ export const SlidePreview: React.FC = () => {
               )}
             </div>
           )}
+
+          {/* 上下文图片选择 */}
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-4">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">选择上下文图片（可选）</h4>
+            
+            {/* Template图片选择 */}
+            {currentProject?.template_image_path && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="use-template"
+                  checked={selectedContextImages.useTemplate}
+                  onChange={(e) =>
+                    setSelectedContextImages((prev) => ({
+                      ...prev,
+                      useTemplate: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 text-banana-600 rounded focus:ring-banana-500"
+                />
+                <label htmlFor="use-template" className="flex items-center gap-2 cursor-pointer">
+                  <ImageIcon size={16} className="text-gray-500" />
+                  <span className="text-sm text-gray-700">使用模板图片</span>
+                  {currentProject.template_image_path && (
+                    <img
+                      src={getImageUrl(currentProject.template_image_path, currentProject.updated_at)}
+                      alt="Template"
+                      className="w-16 h-10 object-cover rounded border border-gray-300"
+                    />
+                  )}
+                </label>
+              </div>
+            )}
+
+            {/* Desc中的图片 */}
+            {selectedPage?.description_content && (() => {
+              const descImageUrls = extractImageUrlsFromDescription(selectedPage.description_content);
+              return descImageUrls.length > 0 ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">描述中的图片：</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {descImageUrls.map((url, idx) => (
+                      <div key={idx} className="relative group">
+                        <img
+                          src={url}
+                          alt={`Desc image ${idx + 1}`}
+                          className="w-full h-20 object-cover rounded border-2 border-gray-300 cursor-pointer transition-all"
+                          style={{
+                            borderColor: selectedContextImages.descImageUrls.includes(url)
+                              ? '#f59e0b'
+                              : '#d1d5db',
+                          }}
+                          onClick={() => {
+                            setSelectedContextImages((prev) => {
+                              const isSelected = prev.descImageUrls.includes(url);
+                              return {
+                                ...prev,
+                                descImageUrls: isSelected
+                                  ? prev.descImageUrls.filter((u) => u !== url)
+                                  : [...prev.descImageUrls, url],
+                              };
+                            });
+                          }}
+                        />
+                        {selectedContextImages.descImageUrls.includes(url) && (
+                          <div className="absolute inset-0 bg-banana-500/20 border-2 border-banana-500 rounded flex items-center justify-center">
+                            <div className="w-6 h-6 bg-banana-500 rounded-full flex items-center justify-center">
+                              <span className="text-white text-xs font-bold">✓</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
+            {/* 上传图片 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">上传图片：</label>
+              <div className="flex flex-wrap gap-2">
+                {selectedContextImages.uploadedFiles.map((file, idx) => (
+                  <div key={idx} className="relative group">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={`Uploaded ${idx + 1}`}
+                      className="w-20 h-20 object-cover rounded border border-gray-300"
+                    />
+                    <button
+                      onClick={() => removeUploadedFile(idx)}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+                <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center cursor-pointer hover:border-banana-500 transition-colors">
+                  <Upload size={20} className="text-gray-400 mb-1" />
+                  <span className="text-xs text-gray-500">上传</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
 
           {/* 编辑框 */}
           <Textarea

@@ -7,6 +7,11 @@ from utils import success_response, error_response, not_found, bad_request
 from services import AIService, FileService
 from services.task_manager import task_manager, generate_single_page_image_task
 from datetime import datetime
+from pathlib import Path
+from werkzeug.utils import secure_filename
+import shutil
+import tempfile
+import json
 
 page_bp = Blueprint('pages', __name__, url_prefix='/api/projects')
 
@@ -437,10 +442,21 @@ def edit_page_image(project_id, page_id):
     """
     POST /api/projects/{project_id}/pages/{page_id}/edit/image - Edit page image
     
-    Request body:
+    Request body (JSON or multipart/form-data):
     {
-        "edit_instruction": "更改文本框样式为虚线"
+        "edit_instruction": "更改文本框样式为虚线",
+        "context_images": {
+            "use_template": true,  // 是否使用template图片
+            "desc_image_urls": ["url1", "url2"],  // desc中的图片URL列表
+            "uploaded_image_ids": ["file1", "file2"]  // 上传的图片文件ID列表（在multipart中）
+        }
     }
+    
+    For multipart/form-data:
+    - edit_instruction: text field
+    - use_template: text field (true/false)
+    - desc_image_urls: JSON array string
+    - context_images: file uploads (multiple files with key "context_images")
     """
     try:
         page = Page.query.get(page_id)
@@ -451,10 +467,9 @@ def edit_page_image(project_id, page_id):
         if not page.generated_image_path:
             return bad_request("Page must have generated image first")
         
-        data = request.get_json()
-        
-        if not data or 'edit_instruction' not in data:
-            return bad_request("edit_instruction is required")
+        project = Project.query.get(project_id)
+        if not project:
+            return not_found('Project')
         
         # Initialize services
         from flask import current_app
@@ -464,6 +479,27 @@ def edit_page_image(project_id, page_id):
         )
         
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
+        
+        # Parse request data (support both JSON and multipart/form-data)
+        if request.is_json:
+            data = request.get_json()
+            uploaded_files = []
+        else:
+            # multipart/form-data
+            data = request.form.to_dict()
+            # Get uploaded files
+            uploaded_files = request.files.getlist('context_images')
+            # Parse JSON fields
+            if 'desc_image_urls' in data and data['desc_image_urls']:
+                try:
+                    data['desc_image_urls'] = json.loads(data['desc_image_urls'])
+                except:
+                    data['desc_image_urls'] = []
+            else:
+                data['desc_image_urls'] = []
+        
+        if not data or 'edit_instruction' not in data:
+            return bad_request("edit_instruction is required")
         
         # Get current image path
         current_image_path = file_service.get_absolute_path(page.generated_image_path)
@@ -481,17 +517,71 @@ def edit_page_image(project_id, page_id):
                 else:
                     original_description = str(desc_content['text_content'])
         
+        # Collect additional reference images
+        additional_ref_images = []
+        
+        # 1. Add template image if requested
+        context_images = data.get('context_images', {})
+        if isinstance(context_images, dict):
+            use_template = context_images.get('use_template', False)
+        else:
+            use_template = data.get('use_template', 'false').lower() == 'true'
+        
+        if use_template:
+            template_path = file_service.get_template_path(project_id)
+            if template_path:
+                additional_ref_images.append(template_path)
+        
+        # 2. Add desc image URLs if provided
+        if isinstance(context_images, dict):
+            desc_image_urls = context_images.get('desc_image_urls', [])
+        else:
+            desc_image_urls = data.get('desc_image_urls', [])
+        
+        if desc_image_urls:
+            if isinstance(desc_image_urls, str):
+                try:
+                    desc_image_urls = json.loads(desc_image_urls)
+                except:
+                    desc_image_urls = []
+            if isinstance(desc_image_urls, list):
+                additional_ref_images.extend(desc_image_urls)
+        
+        # 3. Save and add uploaded files
+        temp_dir = None
+        if uploaded_files:
+            # Create a temporary directory for context images
+            temp_dir = Path(tempfile.mkdtemp())
+            try:
+                for uploaded_file in uploaded_files:
+                    if uploaded_file.filename:
+                        # Save to temp directory
+                        temp_path = temp_dir / secure_filename(uploaded_file.filename)
+                        uploaded_file.save(str(temp_path))
+                        additional_ref_images.append(str(temp_path))
+            except Exception as e:
+                # Clean up temp directory on error
+                if temp_dir and temp_dir.exists():
+                    shutil.rmtree(temp_dir)
+                raise e
+        
         # Edit image
         page.status = 'GENERATING'
         db.session.commit()
         
-        image = ai_service.edit_image(
-            data['edit_instruction'],
-            current_image_path,
-            current_app.config['DEFAULT_ASPECT_RATIO'],
-            current_app.config['DEFAULT_RESOLUTION'],
-            original_description=original_description
-        )
+        try:
+            image = ai_service.edit_image(
+                data['edit_instruction'],
+                current_image_path,
+                current_app.config['DEFAULT_ASPECT_RATIO'],
+                current_app.config['DEFAULT_RESOLUTION'],
+                original_description=original_description,
+                additional_ref_images=additional_ref_images if additional_ref_images else None
+            )
+        finally:
+            # Clean up temp directory if created
+            if temp_dir and temp_dir.exists():
+                shutil.rmtree(temp_dir)
         
         if not image:
             page.status = 'FAILED'
