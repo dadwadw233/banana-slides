@@ -131,7 +131,7 @@ def _get_provider_config() -> Tuple[str, str, str]:
     return provider_format, api_key, api_base
 
 
-def get_text_provider(model: str = "gemini-2.5-flash") -> TextProvider:
+def get_text_provider(model: str = "gemini-3-flash-preview") -> TextProvider:
     """
     Factory function to get text generation provider based on configuration
     

@@ -28,7 +28,7 @@ class FileParserService:
     def __init__(self, mineru_token: str, mineru_api_base: str = "https://mineru.net",
                  google_api_key: str = "", google_api_base: str = "",
                  openai_api_key: str = "", openai_api_base: str = "",
-                 image_caption_model: str = "gemini-2.5-flash"):
+                 image_caption_model: str = "gemini-3-flash-preview"):
         """
         Initialize the file parser service
         

@@ -53,7 +53,7 @@ class Config:
     OPENAI_API_BASE = os.getenv('OPENAI_API_BASE', 'https://aihubmix.com/v1')
     
     # AI 模型配置
-    TEXT_MODEL = os.getenv('TEXT_MODEL', 'gemini-2.5-flash')
+    TEXT_MODEL = os.getenv('TEXT_MODEL', 'gemini-3-flash-preview')
     IMAGE_MODEL = os.getenv('IMAGE_MODEL', 'gemini-3-pro-image-preview')
 
     # MinerU 文件解析服务配置
@@ -61,7 +61,7 @@ class Config:
     MINERU_API_BASE = os.getenv('MINERU_API_BASE', 'https://mineru.net')
     
     # 图片识别模型配置
-    IMAGE_CAPTION_MODEL = os.getenv('IMAGE_CAPTION_MODEL', 'gemini-2.5-flash')
+    IMAGE_CAPTION_MODEL = os.getenv('IMAGE_CAPTION_MODEL', 'gemini-3-flash-preview')
     
     # 并发配置
     MAX_DESCRIPTION_WORKERS = int(os.getenv('MAX_DESCRIPTION_WORKERS', '5'))
