@@ -33,32 +33,47 @@ class Settings(db.Model):
         Convert to dictionary with actual runtime values
 
         返回实际运行时使用的值（环境变量 > 数据库 > 默认值）
-        这样前端显示的是当前实际在用的配置
+        直接从 app.config 读取，因为启动时已经按正确的优先级加载好了
         """
-        from config import Config
+        # 尝试从 Flask app.config 读取实际运行时的值（已按环境变量 > 数据库优先级加载）
+        try:
+            from flask import current_app
+            has_app_context = True
+        except (ImportError, RuntimeError):
+            has_app_context = False
 
-        # 获取实际运行时使用的值（环境变量优先）
-        # Get actual runtime values (environment variables take precedence)
+        if has_app_context:
+            # 从 app.config 读取实际运行时使用的值
+            actual_provider_format = current_app.config.get('AI_PROVIDER_FORMAT', 'gemini')
+            actual_text_model = current_app.config.get('TEXT_MODEL', 'gemini-3-flash-preview')
+            actual_image_model = current_app.config.get('IMAGE_MODEL', 'gemini-3-pro-image-preview')
+            actual_mineru_api_base = current_app.config.get('MINERU_API_BASE', 'https://mineru.net')
+            actual_mineru_token = current_app.config.get('MINERU_TOKEN', '')
+            actual_image_caption_model = current_app.config.get('IMAGE_CAPTION_MODEL', 'gemini-3-flash-preview')
 
-        # AI Provider Format
-        actual_provider_format = self.ai_provider_format or Config.AI_PROVIDER_FORMAT
-
-        # API configuration (根据 provider format 选择对应的环境变量)
-        if actual_provider_format == 'openai':
-            actual_api_base = self.api_base_url or Config.OPENAI_API_BASE
-            actual_api_key = self.api_key or Config.OPENAI_API_KEY
+            # API Base 和 Key 根据 provider format 选择
+            if actual_provider_format == 'openai':
+                actual_api_base = current_app.config.get('OPENAI_API_BASE', '')
+                actual_api_key = current_app.config.get('OPENAI_API_KEY', '')
+            else:
+                actual_api_base = current_app.config.get('GOOGLE_API_BASE', '')
+                actual_api_key = current_app.config.get('GOOGLE_API_KEY', '')
         else:
-            actual_api_base = self.api_base_url or Config.GOOGLE_API_BASE
-            actual_api_key = self.api_key or Config.GOOGLE_API_KEY
+            # 没有 app context（比如在测试中），回退到 Config
+            from config import Config
+            actual_provider_format = Config.AI_PROVIDER_FORMAT if Config.AI_PROVIDER_FORMAT else self.ai_provider_format
+            actual_text_model = Config.TEXT_MODEL if Config.TEXT_MODEL else self.text_model
+            actual_image_model = Config.IMAGE_MODEL if Config.IMAGE_MODEL else self.image_model
+            actual_mineru_api_base = Config.MINERU_API_BASE if Config.MINERU_API_BASE else self.mineru_api_base
+            actual_mineru_token = Config.MINERU_TOKEN if Config.MINERU_TOKEN else self.mineru_token
+            actual_image_caption_model = Config.IMAGE_CAPTION_MODEL if Config.IMAGE_CAPTION_MODEL else self.image_caption_model
 
-        # Model configuration
-        actual_text_model = self.text_model or Config.TEXT_MODEL
-        actual_image_model = self.image_model or Config.IMAGE_MODEL
-
-        # MinerU configuration
-        actual_mineru_api_base = self.mineru_api_base or Config.MINERU_API_BASE
-        actual_mineru_token = self.mineru_token or Config.MINERU_TOKEN
-        actual_image_caption_model = self.image_caption_model or Config.IMAGE_CAPTION_MODEL
+            if actual_provider_format == 'openai':
+                actual_api_base = Config.OPENAI_API_BASE if Config.OPENAI_API_BASE else self.api_base_url
+                actual_api_key = Config.OPENAI_API_KEY if Config.OPENAI_API_KEY else self.api_key
+            else:
+                actual_api_base = Config.GOOGLE_API_BASE if Config.GOOGLE_API_BASE else self.api_base_url
+                actual_api_key = Config.GOOGLE_API_KEY if Config.GOOGLE_API_KEY else self.api_key
 
         return {
             'id': self.id,
