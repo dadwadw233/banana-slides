@@ -30,65 +30,25 @@ class Settings(db.Model):
 
     def to_dict(self):
         """
-        Convert to dictionary with actual runtime values
+        Convert to dictionary
 
-        返回实际运行时使用的值（环境变量 > 数据库 > 默认值）
-        直接从 app.config 读取，因为启动时已经按正确的优先级加载好了
+        数据库始终存储实际运行时的值（启动时环境变量会同步到数据库）
+        所以直接返回数据库值即可
         """
-        # 尝试从 Flask app.config 读取实际运行时的值（已按环境变量 > 数据库优先级加载）
-        try:
-            from flask import current_app
-            has_app_context = True
-        except (ImportError, RuntimeError):
-            has_app_context = False
-
-        if has_app_context:
-            # 从 app.config 读取实际运行时使用的值
-            actual_provider_format = current_app.config.get('AI_PROVIDER_FORMAT', 'gemini')
-            actual_text_model = current_app.config.get('TEXT_MODEL', 'gemini-3-flash-preview')
-            actual_image_model = current_app.config.get('IMAGE_MODEL', 'gemini-3-pro-image-preview')
-            actual_mineru_api_base = current_app.config.get('MINERU_API_BASE', 'https://mineru.net')
-            actual_mineru_token = current_app.config.get('MINERU_TOKEN', '')
-            actual_image_caption_model = current_app.config.get('IMAGE_CAPTION_MODEL', 'gemini-3-flash-preview')
-
-            # API Base 和 Key 根据 provider format 选择
-            if actual_provider_format == 'openai':
-                actual_api_base = current_app.config.get('OPENAI_API_BASE', '')
-                actual_api_key = current_app.config.get('OPENAI_API_KEY', '')
-            else:
-                actual_api_base = current_app.config.get('GOOGLE_API_BASE', '')
-                actual_api_key = current_app.config.get('GOOGLE_API_KEY', '')
-        else:
-            # 没有 app context（比如在测试中），回退到 Config
-            from config import Config
-            actual_provider_format = Config.AI_PROVIDER_FORMAT if Config.AI_PROVIDER_FORMAT else self.ai_provider_format
-            actual_text_model = Config.TEXT_MODEL if Config.TEXT_MODEL else self.text_model
-            actual_image_model = Config.IMAGE_MODEL if Config.IMAGE_MODEL else self.image_model
-            actual_mineru_api_base = Config.MINERU_API_BASE if Config.MINERU_API_BASE else self.mineru_api_base
-            actual_mineru_token = Config.MINERU_TOKEN if Config.MINERU_TOKEN else self.mineru_token
-            actual_image_caption_model = Config.IMAGE_CAPTION_MODEL if Config.IMAGE_CAPTION_MODEL else self.image_caption_model
-
-            if actual_provider_format == 'openai':
-                actual_api_base = Config.OPENAI_API_BASE if Config.OPENAI_API_BASE else self.api_base_url
-                actual_api_key = Config.OPENAI_API_KEY if Config.OPENAI_API_KEY else self.api_key
-            else:
-                actual_api_base = Config.GOOGLE_API_BASE if Config.GOOGLE_API_BASE else self.api_base_url
-                actual_api_key = Config.GOOGLE_API_KEY if Config.GOOGLE_API_KEY else self.api_key
-
         return {
             'id': self.id,
-            'ai_provider_format': actual_provider_format,
-            'api_base_url': actual_api_base,
-            'api_key_length': len(actual_api_key) if actual_api_key else 0,
+            'ai_provider_format': self.ai_provider_format,
+            'api_base_url': self.api_base_url,
+            'api_key_length': len(self.api_key) if self.api_key else 0,
             'image_resolution': self.image_resolution,
             'image_aspect_ratio': self.image_aspect_ratio,
             'max_description_workers': self.max_description_workers,
             'max_image_workers': self.max_image_workers,
-            'text_model': actual_text_model,
-            'image_model': actual_image_model,
-            'mineru_api_base': actual_mineru_api_base,
-            'mineru_token_length': len(actual_mineru_token) if actual_mineru_token else 0,
-            'image_caption_model': actual_image_caption_model,
+            'text_model': self.text_model,
+            'image_model': self.image_model,
+            'mineru_api_base': self.mineru_api_base,
+            'mineru_token_length': len(self.mineru_token) if self.mineru_token else 0,
+            'image_caption_model': self.image_caption_model,
             'output_language': self.output_language,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

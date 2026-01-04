@@ -156,26 +156,27 @@ def _load_settings_to_config(app):
     Load settings on startup with priority: Environment Variables > Database > Code Defaults
 
     启动时配置优先级：环境变量 > 数据库 > 代码默认值
-    - 环境变量中有值的配置项，优先使用环境变量（已经在 Config 中加载到 app.config）
-    - 环境变量中没有的配置项，才从数据库读取
-    - 这样确保 Docker 容器重启后环境变量总是生效
+    - 如果环境变量有值，使用环境变量并**同步更新数据库**
+    - 如果环境变量无值，使用数据库中的值
+    - 这样确保数据库始终存储实际运行时的值，前后端保持一致
     """
-    from models import Settings
+    from models import Settings, db
     from config import Config
     try:
         settings = Settings.get_settings()
+        db_updated = False  # 跟踪是否需要更新数据库
 
-        # Load AI provider format (环境变量优先)
+        # Load AI provider format (环境变量优先并同步到数据库)
         if Config.AI_PROVIDER_FORMAT:
-            # 环境变量有值，使用环境变量（Config已加载到app.config）
+            if settings.ai_provider_format != Config.AI_PROVIDER_FORMAT:
+                settings.ai_provider_format = Config.AI_PROVIDER_FORMAT
+                db_updated = True
             logging.info(f"Using AI_PROVIDER_FORMAT from env: {Config.AI_PROVIDER_FORMAT}")
         elif settings.ai_provider_format:
-            # 环境变量无值，使用数据库
             app.config['AI_PROVIDER_FORMAT'] = settings.ai_provider_format
             logging.info(f"Using AI_PROVIDER_FORMAT from database: {settings.ai_provider_format}")
 
-        # Load API configuration (环境变量优先)
-        # 根据 AI_PROVIDER_FORMAT 选择对应的环境变量
+        # Load API configuration (环境变量优先并同步到数据库)
         provider_format = app.config.get('AI_PROVIDER_FORMAT', 'gemini').lower()
         if provider_format == 'openai':
             env_api_base = Config.OPENAI_API_BASE
@@ -185,54 +186,76 @@ def _load_settings_to_config(app):
             env_api_key = Config.GOOGLE_API_KEY
 
         if env_api_base:
-            # 环境变量有 API Base，使用环境变量
+            if settings.api_base_url != env_api_base:
+                settings.api_base_url = env_api_base
+                db_updated = True
             logging.info(f"Using API_BASE from env: {env_api_base}")
         elif settings.api_base_url:
-            # 环境变量无值，使用数据库
             app.config['GOOGLE_API_BASE'] = settings.api_base_url
             app.config['OPENAI_API_BASE'] = settings.api_base_url
             logging.info(f"Using API_BASE from database: {settings.api_base_url}")
 
         if env_api_key:
-            # 环境变量有 API Key，使用环境变量
+            if settings.api_key != env_api_key:
+                settings.api_key = env_api_key
+                db_updated = True
             logging.info("Using API_KEY from env (value hidden)")
         elif settings.api_key:
-            # 环境变量无值，使用数据库
             app.config['GOOGLE_API_KEY'] = settings.api_key
             app.config['OPENAI_API_KEY'] = settings.api_key
             logging.info("Using API_KEY from database (value hidden)")
 
-        # Load model configuration (环境变量优先)
+        # Load model configuration (环境变量优先并同步到数据库)
         if Config.TEXT_MODEL:
+            if settings.text_model != Config.TEXT_MODEL:
+                settings.text_model = Config.TEXT_MODEL
+                db_updated = True
             logging.info(f"Using TEXT_MODEL from env: {Config.TEXT_MODEL}")
         elif settings.text_model:
             app.config['TEXT_MODEL'] = settings.text_model
             logging.info(f"Using TEXT_MODEL from database: {settings.text_model}")
 
         if Config.IMAGE_MODEL:
+            if settings.image_model != Config.IMAGE_MODEL:
+                settings.image_model = Config.IMAGE_MODEL
+                db_updated = True
             logging.info(f"Using IMAGE_MODEL from env: {Config.IMAGE_MODEL}")
         elif settings.image_model:
             app.config['IMAGE_MODEL'] = settings.image_model
             logging.info(f"Using IMAGE_MODEL from database: {settings.image_model}")
 
-        # Load MinerU configuration (环境变量优先)
+        # Load MinerU configuration (环境变量优先并同步到数据库)
         if Config.MINERU_API_BASE:
+            if settings.mineru_api_base != Config.MINERU_API_BASE:
+                settings.mineru_api_base = Config.MINERU_API_BASE
+                db_updated = True
             logging.info(f"Using MINERU_API_BASE from env: {Config.MINERU_API_BASE}")
         elif settings.mineru_api_base:
             app.config['MINERU_API_BASE'] = settings.mineru_api_base
             logging.info(f"Using MINERU_API_BASE from database: {settings.mineru_api_base}")
 
         if Config.MINERU_TOKEN:
+            if settings.mineru_token != Config.MINERU_TOKEN:
+                settings.mineru_token = Config.MINERU_TOKEN
+                db_updated = True
             logging.info("Using MINERU_TOKEN from env (value hidden)")
         elif settings.mineru_token:
             app.config['MINERU_TOKEN'] = settings.mineru_token
             logging.info("Using MINERU_TOKEN from database (value hidden)")
 
         if Config.IMAGE_CAPTION_MODEL:
+            if settings.image_caption_model != Config.IMAGE_CAPTION_MODEL:
+                settings.image_caption_model = Config.IMAGE_CAPTION_MODEL
+                db_updated = True
             logging.info(f"Using IMAGE_CAPTION_MODEL from env: {Config.IMAGE_CAPTION_MODEL}")
         elif settings.image_caption_model:
             app.config['IMAGE_CAPTION_MODEL'] = settings.image_caption_model
             logging.info(f"Using IMAGE_CAPTION_MODEL from database: {settings.image_caption_model}")
+
+        # 如果环境变量更新了数据库，提交更改
+        if db_updated:
+            db.session.commit()
+            logging.info("Database settings updated from environment variables")
 
         # Load image generation settings (数据库优先，因为这些是UI配置)
         app.config['DEFAULT_RESOLUTION'] = settings.image_resolution
