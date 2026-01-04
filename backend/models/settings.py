@@ -29,21 +29,51 @@ class Settings(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
-        """Convert to dictionary"""
+        """
+        Convert to dictionary with actual runtime values
+
+        返回实际运行时使用的值（环境变量 > 数据库 > 默认值）
+        这样前端显示的是当前实际在用的配置
+        """
+        from config import Config
+
+        # 获取实际运行时使用的值（环境变量优先）
+        # Get actual runtime values (environment variables take precedence)
+
+        # AI Provider Format
+        actual_provider_format = self.ai_provider_format or Config.AI_PROVIDER_FORMAT
+
+        # API configuration (根据 provider format 选择对应的环境变量)
+        if actual_provider_format == 'openai':
+            actual_api_base = self.api_base_url or Config.OPENAI_API_BASE
+            actual_api_key = self.api_key or Config.OPENAI_API_KEY
+        else:
+            actual_api_base = self.api_base_url or Config.GOOGLE_API_BASE
+            actual_api_key = self.api_key or Config.GOOGLE_API_KEY
+
+        # Model configuration
+        actual_text_model = self.text_model or Config.TEXT_MODEL
+        actual_image_model = self.image_model or Config.IMAGE_MODEL
+
+        # MinerU configuration
+        actual_mineru_api_base = self.mineru_api_base or Config.MINERU_API_BASE
+        actual_mineru_token = self.mineru_token or Config.MINERU_TOKEN
+        actual_image_caption_model = self.image_caption_model or Config.IMAGE_CAPTION_MODEL
+
         return {
             'id': self.id,
-            'ai_provider_format': self.ai_provider_format,
-            'api_base_url': self.api_base_url,
-            'api_key_length': len(self.api_key) if self.api_key else 0,
+            'ai_provider_format': actual_provider_format,
+            'api_base_url': actual_api_base,
+            'api_key_length': len(actual_api_key) if actual_api_key else 0,
             'image_resolution': self.image_resolution,
             'image_aspect_ratio': self.image_aspect_ratio,
             'max_description_workers': self.max_description_workers,
             'max_image_workers': self.max_image_workers,
-            'text_model': self.text_model,
-            'image_model': self.image_model,
-            'mineru_api_base': self.mineru_api_base,
-            'mineru_token_length': len(self.mineru_token) if self.mineru_token else 0,
-            'image_caption_model': self.image_caption_model,
+            'text_model': actual_text_model,
+            'image_model': actual_image_model,
+            'mineru_api_base': actual_mineru_api_base,
+            'mineru_token_length': len(actual_mineru_token) if actual_mineru_token else 0,
+            'image_caption_model': actual_image_caption_model,
             'output_language': self.output_language,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
