@@ -12,17 +12,9 @@ class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)
     ai_provider_format = db.Column(db.String(20), nullable=False, default='gemini')  # AI提供商格式: openai, gemini
 
-    # Google/Gemini API 配置
-    google_api_base = db.Column(db.String(500), nullable=True)  # Google API基础URL
-    google_api_key = db.Column(db.String(500), nullable=True)  # Google API密钥
-
-    # OpenAI API 配置
-    openai_api_base = db.Column(db.String(500), nullable=True)  # OpenAI API基础URL
-    openai_api_key = db.Column(db.String(500), nullable=True)  # OpenAI API密钥
-
-    # 旧字段（向后兼容，迁移后可以删除）
-    api_base_url = db.Column(db.String(500), nullable=True)  # 废弃：统一API基础URL
-    api_key = db.Column(db.String(500), nullable=True)  # 废弃：统一API密钥
+    # API 配置 - 存储当前provider的配置
+    api_base_url = db.Column(db.String(500), nullable=True)  # API基础URL
+    api_key = db.Column(db.String(500), nullable=True)  # API密钥
 
     image_resolution = db.Column(db.String(20), nullable=False, default='2K')  # 图像清晰度: 1K, 2K, 4K
     image_aspect_ratio = db.Column(db.String(10), nullable=False, default='16:9')  # 图像比例: 16:9, 4:3, 1:1
@@ -49,13 +41,9 @@ class Settings(db.Model):
             'id': self.id,
             'ai_provider_format': self.ai_provider_format,
 
-            # Google/Gemini API 配置
-            'google_api_base': self.google_api_base,
-            'google_api_key_length': len(self.google_api_key) if self.google_api_key else 0,
-
-            # OpenAI API 配置
-            'openai_api_base': self.openai_api_base,
-            'openai_api_key_length': len(self.openai_api_key) if self.openai_api_key else 0,
+            # API 配置 - 当前provider的配置
+            'api_base_url': self.api_base_url,
+            'api_key_length': len(self.api_key) if self.api_key else 0,
 
             # 其他配置
             'image_resolution': self.image_resolution,
@@ -91,15 +79,7 @@ class Settings(db.Model):
             settings = Settings(
                 ai_provider_format=None,  # None = 使用环境变量
 
-                # Google/Gemini API 配置
-                google_api_base=None,  # None = 使用环境变量
-                google_api_key=None,  # None = 使用环境变量
-
-                # OpenAI API 配置
-                openai_api_base=None,  # None = 使用环境变量
-                openai_api_key=None,  # None = 使用环境变量
-
-                # 旧字段（向后兼容）
+                # API 配置 - 根据当前provider从环境变量加载
                 api_base_url=None,
                 api_key=None,
 
