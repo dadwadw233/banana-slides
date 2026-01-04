@@ -153,88 +153,100 @@ def create_app():
 
 def _load_settings_to_config(app):
     """
-    Load settings from database and apply to app.config on startup
+    Load settings on startup with priority: Environment Variables > Database > Code Defaults
 
-    优先级：数据库非 None 值 > 环境变量（Config）> 代码默认值
-    只有当数据库值不为 None 时才覆盖 app.config（环境变量）
+    启动时配置优先级：环境变量 > 数据库 > 代码默认值
+    - 环境变量中有值的配置项，优先使用环境变量（已经在 Config 中加载到 app.config）
+    - 环境变量中没有的配置项，才从数据库读取
+    - 这样确保 Docker 容器重启后环境变量总是生效
     """
     from models import Settings
+    from config import Config
     try:
         settings = Settings.get_settings()
 
-        # Load AI provider format (只有数据库有值时才覆盖环境变量)
-        if settings.ai_provider_format is not None:
+        # Load AI provider format (环境变量优先)
+        if Config.AI_PROVIDER_FORMAT:
+            # 环境变量有值，使用环境变量（Config已加载到app.config）
+            logging.info(f"Using AI_PROVIDER_FORMAT from env: {Config.AI_PROVIDER_FORMAT}")
+        elif settings.ai_provider_format:
+            # 环境变量无值，使用数据库
             app.config['AI_PROVIDER_FORMAT'] = settings.ai_provider_format
-            logging.info(f"Loaded AI_PROVIDER_FORMAT from settings: {settings.ai_provider_format}")
-        else:
-            logging.info(f"Using AI_PROVIDER_FORMAT from env: {app.config.get('AI_PROVIDER_FORMAT')}")
+            logging.info(f"Using AI_PROVIDER_FORMAT from database: {settings.ai_provider_format}")
 
-        # Load API configuration (只有数据库有值时才覆盖)
-        if settings.api_base_url is not None and settings.api_base_url != '':
-            # 将数据库中的统一 API Base 同步到 Google/OpenAI 两个配置
+        # Load API configuration (环境变量优先)
+        # 根据 AI_PROVIDER_FORMAT 选择对应的环境变量
+        provider_format = app.config.get('AI_PROVIDER_FORMAT', 'gemini').lower()
+        if provider_format == 'openai':
+            env_api_base = Config.OPENAI_API_BASE
+            env_api_key = Config.OPENAI_API_KEY
+        else:
+            env_api_base = Config.GOOGLE_API_BASE
+            env_api_key = Config.GOOGLE_API_KEY
+
+        if env_api_base:
+            # 环境变量有 API Base，使用环境变量
+            logging.info(f"Using API_BASE from env: {env_api_base}")
+        elif settings.api_base_url:
+            # 环境变量无值，使用数据库
             app.config['GOOGLE_API_BASE'] = settings.api_base_url
             app.config['OPENAI_API_BASE'] = settings.api_base_url
-            logging.info(f"Loaded API_BASE from settings: {settings.api_base_url}")
-        else:
-            logging.info(f"Using API_BASE from env: GOOGLE={app.config.get('GOOGLE_API_BASE')}, OPENAI={app.config.get('OPENAI_API_BASE')}")
+            logging.info(f"Using API_BASE from database: {settings.api_base_url}")
 
-        if settings.api_key is not None and settings.api_key != '':
-            # 同步到两个提供商的 key
+        if env_api_key:
+            # 环境变量有 API Key，使用环境变量
+            logging.info("Using API_KEY from env (value hidden)")
+        elif settings.api_key:
+            # 环境变量无值，使用数据库
             app.config['GOOGLE_API_KEY'] = settings.api_key
             app.config['OPENAI_API_KEY'] = settings.api_key
-            logging.info("Loaded API key from settings (value hidden)")
-        else:
-            # 不打印key的值，只显示是否从环境变量加载
-            has_google = bool(app.config.get('GOOGLE_API_KEY'))
-            has_openai = bool(app.config.get('OPENAI_API_KEY'))
-            logging.info(f"Using API keys from env: GOOGLE={has_google}, OPENAI={has_openai}")
+            logging.info("Using API_KEY from database (value hidden)")
 
-        # Load model configuration (只有数据库有值时才覆盖)
-        if settings.text_model is not None and settings.text_model != '':
+        # Load model configuration (环境变量优先)
+        if Config.TEXT_MODEL:
+            logging.info(f"Using TEXT_MODEL from env: {Config.TEXT_MODEL}")
+        elif settings.text_model:
             app.config['TEXT_MODEL'] = settings.text_model
-            logging.info(f"Loaded TEXT_MODEL from settings: {settings.text_model}")
-        else:
-            logging.info(f"Using TEXT_MODEL from env: {app.config.get('TEXT_MODEL')}")
+            logging.info(f"Using TEXT_MODEL from database: {settings.text_model}")
 
-        if settings.image_model is not None and settings.image_model != '':
+        if Config.IMAGE_MODEL:
+            logging.info(f"Using IMAGE_MODEL from env: {Config.IMAGE_MODEL}")
+        elif settings.image_model:
             app.config['IMAGE_MODEL'] = settings.image_model
-            logging.info(f"Loaded IMAGE_MODEL from settings: {settings.image_model}")
-        else:
-            logging.info(f"Using IMAGE_MODEL from env: {app.config.get('IMAGE_MODEL')}")
+            logging.info(f"Using IMAGE_MODEL from database: {settings.image_model}")
 
-        # Load MinerU configuration (只有数据库有值时才覆盖)
-        if settings.mineru_api_base is not None and settings.mineru_api_base != '':
+        # Load MinerU configuration (环境变量优先)
+        if Config.MINERU_API_BASE:
+            logging.info(f"Using MINERU_API_BASE from env: {Config.MINERU_API_BASE}")
+        elif settings.mineru_api_base:
             app.config['MINERU_API_BASE'] = settings.mineru_api_base
-            logging.info(f"Loaded MINERU_API_BASE from settings: {settings.mineru_api_base}")
-        else:
-            logging.info(f"Using MINERU_API_BASE from env: {app.config.get('MINERU_API_BASE')}")
+            logging.info(f"Using MINERU_API_BASE from database: {settings.mineru_api_base}")
 
-        if settings.mineru_token is not None and settings.mineru_token != '':
+        if Config.MINERU_TOKEN:
+            logging.info("Using MINERU_TOKEN from env (value hidden)")
+        elif settings.mineru_token:
             app.config['MINERU_TOKEN'] = settings.mineru_token
-            logging.info("Loaded MINERU_TOKEN from settings (value hidden)")
-        else:
-            has_token = bool(app.config.get('MINERU_TOKEN'))
-            logging.info(f"Using MINERU_TOKEN from env: {has_token}")
+            logging.info("Using MINERU_TOKEN from database (value hidden)")
 
-        if settings.image_caption_model is not None and settings.image_caption_model != '':
+        if Config.IMAGE_CAPTION_MODEL:
+            logging.info(f"Using IMAGE_CAPTION_MODEL from env: {Config.IMAGE_CAPTION_MODEL}")
+        elif settings.image_caption_model:
             app.config['IMAGE_CAPTION_MODEL'] = settings.image_caption_model
-            logging.info(f"Loaded IMAGE_CAPTION_MODEL from settings: {settings.image_caption_model}")
-        else:
-            logging.info(f"Using IMAGE_CAPTION_MODEL from env: {app.config.get('IMAGE_CAPTION_MODEL')}")
+            logging.info(f"Using IMAGE_CAPTION_MODEL from database: {settings.image_caption_model}")
 
-        # Load image generation settings (这些始终有默认值)
+        # Load image generation settings (数据库优先，因为这些是UI配置)
         app.config['DEFAULT_RESOLUTION'] = settings.image_resolution
         app.config['DEFAULT_ASPECT_RATIO'] = settings.image_aspect_ratio
-        logging.info(f"Loaded image settings: {settings.image_resolution}, {settings.image_aspect_ratio}")
+        logging.info(f"Using image settings from database: {settings.image_resolution}, {settings.image_aspect_ratio}")
 
-        # Load worker settings (这些始终有默认值)
+        # Load worker settings (数据库优先，因为这些是UI配置)
         app.config['MAX_DESCRIPTION_WORKERS'] = settings.max_description_workers
         app.config['MAX_IMAGE_WORKERS'] = settings.max_image_workers
-        logging.info(f"Loaded worker settings: desc={settings.max_description_workers}, img={settings.max_image_workers}")
+        logging.info(f"Using worker settings from database: desc={settings.max_description_workers}, img={settings.max_image_workers}")
 
-        # Load output language (始终有默认值)
+        # Load output language (数据库优先，因为这是UI配置)
         app.config['OUTPUT_LANGUAGE'] = settings.output_language
-        logging.info(f"Loaded output language: {settings.output_language}")
+        logging.info(f"Using output language from database: {settings.output_language}")
 
     except Exception as e:
         logging.warning(f"Could not load settings from database: {e}")
