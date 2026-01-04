@@ -54,36 +54,30 @@ class Settings(db.Model):
         """
         Get or create the single settings instance.
 
-        - 首次创建时，用 Config（也就是 .env）里的值初始化，作为“系统默认值”
-        - 之后所有读写都只走数据库，env 只影响初始化/重置逻辑
+        - 首次创建时，将可配置项初始化为 None，使其回退到环境变量
+        - 只有必须有默认值的字段（如 image_resolution）才设置默认值
+        - 运行时优先级：数据库非 None 值 > 环境变量 > 代码默认值
         """
         settings = Settings.query.first()
         if not settings:
             # 延迟导入，避免循环依赖
             from config import Config
 
-            # 根据 AI_PROVIDER_FORMAT 选择默认 Provider 的 env 配置
-            if (Config.AI_PROVIDER_FORMAT or '').lower() == 'openai':
-                default_api_base = Config.OPENAI_API_BASE or None
-                default_api_key = Config.OPENAI_API_KEY or None
-            else:
-                # 默认为 gemini（Google）
-                default_api_base = Config.GOOGLE_API_BASE or None
-                default_api_key = Config.GOOGLE_API_KEY or None
-
+            # 创建初始设置，大部分字段为 None，使其回退到环境变量
+            # 只有 UI 必需的字段（如分辨率、比例）设置默认值
             settings = Settings(
-                ai_provider_format=Config.AI_PROVIDER_FORMAT,
-                api_base_url=default_api_base,
-                api_key=default_api_key,
-                image_resolution=Config.DEFAULT_RESOLUTION,
-                image_aspect_ratio=Config.DEFAULT_ASPECT_RATIO,
-                max_description_workers=Config.MAX_DESCRIPTION_WORKERS,
-                max_image_workers=Config.MAX_IMAGE_WORKERS,
-                text_model=Config.TEXT_MODEL,
-                image_model=Config.IMAGE_MODEL,
-                mineru_api_base=Config.MINERU_API_BASE,
-                mineru_token=Config.MINERU_TOKEN,
-                image_caption_model=Config.IMAGE_CAPTION_MODEL,
+                ai_provider_format=None,  # None = 使用环境变量
+                api_base_url=None,  # None = 使用环境变量
+                api_key=None,  # None = 使用环境变量
+                image_resolution=Config.DEFAULT_RESOLUTION,  # UI 必需默认值
+                image_aspect_ratio=Config.DEFAULT_ASPECT_RATIO,  # UI 必需默认值
+                max_description_workers=Config.MAX_DESCRIPTION_WORKERS,  # UI 必需默认值
+                max_image_workers=Config.MAX_IMAGE_WORKERS,  # UI 必需默认值
+                text_model=None,  # None = 使用环境变量
+                image_model=None,  # None = 使用环境变量
+                mineru_api_base=None,  # None = 使用环境变量
+                mineru_token=None,  # None = 使用环境变量
+                image_caption_model=None,  # None = 使用环境变量
                 output_language='zh',  # 默认中文
             )
             settings.id = 1

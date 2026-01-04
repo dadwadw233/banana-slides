@@ -148,31 +148,26 @@ def update_settings():
 def reset_settings():
     """
     POST /api/settings/reset - Reset settings to default values
+
+    重置策略：将可配置项设为 None，使其回退到环境变量
+    只保留 UI 必需的默认值（如分辨率、比例等）
     """
     try:
         settings = Settings.get_settings()
 
-        # Reset to default values from Config / .env
-        # Priority logic:
-        # - Check AI_PROVIDER_FORMAT
-        # - If "openai" -> use OPENAI_API_BASE / OPENAI_API_KEY
-        # - Otherwise (default "gemini") -> use GOOGLE_API_BASE / GOOGLE_API_KEY
-        settings.ai_provider_format = Config.AI_PROVIDER_FORMAT
+        # Reset to None to fall back to environment variables
+        # 将可配置项重置为 None，使其回退到环境变量
+        settings.ai_provider_format = None
+        settings.api_base_url = None
+        settings.api_key = None
+        settings.text_model = None
+        settings.image_model = None
+        settings.mineru_api_base = None
+        settings.mineru_token = None
+        settings.image_caption_model = None
 
-        if (Config.AI_PROVIDER_FORMAT or "").lower() == "openai":
-            default_api_base = Config.OPENAI_API_BASE or None
-            default_api_key = Config.OPENAI_API_KEY or None
-        else:
-            default_api_base = Config.GOOGLE_API_BASE or None
-            default_api_key = Config.GOOGLE_API_KEY or None
-
-        settings.api_base_url = default_api_base
-        settings.api_key = default_api_key
-        settings.text_model = Config.TEXT_MODEL
-        settings.image_model = Config.IMAGE_MODEL
-        settings.mineru_api_base = Config.MINERU_API_BASE
-        settings.mineru_token = Config.MINERU_TOKEN
-        settings.image_caption_model = Config.IMAGE_CAPTION_MODEL
+        # Keep UI-required defaults
+        # 保留 UI 必需的默认值
         settings.output_language = 'zh'  # 重置为默认中文
         settings.image_resolution = Config.DEFAULT_RESOLUTION
         settings.image_aspect_ratio = Config.DEFAULT_ASPECT_RATIO
@@ -182,10 +177,10 @@ def reset_settings():
 
         db.session.commit()
 
-        # Sync to app.config
+        # Sync to app.config (will use env vars for None values)
         _sync_settings_to_config(settings)
 
-        logger.info("Settings reset to defaults")
+        logger.info("Settings reset to defaults (using environment variables)")
         return success_response(
             settings.to_dict(), "Settings reset to defaults"
         )
@@ -201,20 +196,28 @@ def reset_settings():
 
 
 def _sync_settings_to_config(settings: Settings):
-    """Sync settings to Flask app config and clear AI service cache if needed"""
+    """
+    Sync settings to Flask app config and clear AI service cache if needed
+
+    优先级：数据库非 None/空值 > 环境变量（Config）> 代码默认值
+    只有当数据库值不为 None 且不为空字符串时才覆盖 app.config
+    """
     # Track if AI-related settings changed
     ai_config_changed = False
-    
-    # Sync AI provider format (always sync, has default value)
-    if settings.ai_provider_format:
+
+    # Sync AI provider format (只有数据库有值时才覆盖)
+    if settings.ai_provider_format is not None and settings.ai_provider_format != '':
         old_format = current_app.config.get("AI_PROVIDER_FORMAT")
         if old_format != settings.ai_provider_format:
             ai_config_changed = True
             logger.info(f"AI provider format changed: {old_format} -> {settings.ai_provider_format}")
         current_app.config["AI_PROVIDER_FORMAT"] = settings.ai_provider_format
-    
-    # Sync API configuration (sync to both GOOGLE_* and OPENAI_* to ensure DB settings override env vars)
-    if settings.api_base_url is not None:
+    else:
+        # 数据库为 None/空，使用环境变量
+        logger.info(f"AI_PROVIDER_FORMAT using env value: {current_app.config.get('AI_PROVIDER_FORMAT')}")
+
+    # Sync API configuration (只有数据库有值时才覆盖)
+    if settings.api_base_url is not None and settings.api_base_url != '':
         old_base = current_app.config.get("GOOGLE_API_BASE")
         if old_base != settings.api_base_url:
             ai_config_changed = True
@@ -222,14 +225,10 @@ def _sync_settings_to_config(settings: Settings):
         current_app.config["GOOGLE_API_BASE"] = settings.api_base_url
         current_app.config["OPENAI_API_BASE"] = settings.api_base_url
     else:
-        # Remove overrides, fall back to env variables or defaults
-        if "GOOGLE_API_BASE" in current_app.config or "OPENAI_API_BASE" in current_app.config:
-            ai_config_changed = True
-            logger.info("API base URL cleared, falling back to defaults")
-        current_app.config.pop("GOOGLE_API_BASE", None)
-        current_app.config.pop("OPENAI_API_BASE", None)
+        # 数据库为 None/空，使用环境变量
+        logger.info(f"API_BASE using env values: GOOGLE={current_app.config.get('GOOGLE_API_BASE')}, OPENAI={current_app.config.get('OPENAI_API_BASE')}")
 
-    if settings.api_key is not None:
+    if settings.api_key is not None and settings.api_key != '':
         old_key = current_app.config.get("GOOGLE_API_KEY")
         # Only compare existence, not actual value for security
         if (old_key is None) != (settings.api_key is None):
@@ -238,51 +237,63 @@ def _sync_settings_to_config(settings: Settings):
         current_app.config["GOOGLE_API_KEY"] = settings.api_key
         current_app.config["OPENAI_API_KEY"] = settings.api_key
     else:
-        # Remove overrides, fall back to env variables or defaults
-        if "GOOGLE_API_KEY" in current_app.config or "OPENAI_API_KEY" in current_app.config:
-            ai_config_changed = True
-            logger.info("API key cleared, falling back to defaults")
-        current_app.config.pop("GOOGLE_API_KEY", None)
-        current_app.config.pop("OPENAI_API_KEY", None)
-    
-    # Check model changes
-    if settings.text_model is not None:
+        # 数据库为 None/空，使用环境变量
+        has_google = bool(current_app.config.get("GOOGLE_API_KEY"))
+        has_openai = bool(current_app.config.get("OPENAI_API_KEY"))
+        logger.info(f"API keys using env values: GOOGLE={has_google}, OPENAI={has_openai}")
+
+    # Check model changes (只有数据库有值时才覆盖)
+    if settings.text_model is not None and settings.text_model != '':
         old_model = current_app.config.get("TEXT_MODEL")
         if old_model != settings.text_model:
             ai_config_changed = True
             logger.info(f"Text model changed: {old_model} -> {settings.text_model}")
         current_app.config["TEXT_MODEL"] = settings.text_model
-    
-    if settings.image_model is not None:
+    else:
+        logger.info(f"TEXT_MODEL using env value: {current_app.config.get('TEXT_MODEL')}")
+
+    if settings.image_model is not None and settings.image_model != '':
         old_model = current_app.config.get("IMAGE_MODEL")
         if old_model != settings.image_model:
             ai_config_changed = True
             logger.info(f"Image model changed: {old_model} -> {settings.image_model}")
         current_app.config["IMAGE_MODEL"] = settings.image_model
+    else:
+        logger.info(f"IMAGE_MODEL using env value: {current_app.config.get('IMAGE_MODEL')}")
 
-    # Sync image generation settings
+    # Sync image generation settings (这些始终有默认值)
     current_app.config["DEFAULT_RESOLUTION"] = settings.image_resolution
     current_app.config["DEFAULT_ASPECT_RATIO"] = settings.image_aspect_ratio
 
-    # Sync worker settings
+    # Sync worker settings (这些始终有默认值)
     current_app.config["MAX_DESCRIPTION_WORKERS"] = settings.max_description_workers
     current_app.config["MAX_IMAGE_WORKERS"] = settings.max_image_workers
     logger.info(f"Updated worker settings: desc={settings.max_description_workers}, img={settings.max_image_workers}")
 
-    # Sync MinerU settings (optional, fall back to Config defaults if None)
-    if settings.mineru_api_base:
+    # Sync MinerU settings (只有数据库有值时才覆盖)
+    if settings.mineru_api_base is not None and settings.mineru_api_base != '':
         current_app.config["MINERU_API_BASE"] = settings.mineru_api_base
         logger.info(f"Updated MINERU_API_BASE to: {settings.mineru_api_base}")
-    if settings.mineru_token is not None:
+    else:
+        logger.info(f"MINERU_API_BASE using env value: {current_app.config.get('MINERU_API_BASE')}")
+
+    if settings.mineru_token is not None and settings.mineru_token != '':
         current_app.config["MINERU_TOKEN"] = settings.mineru_token
         logger.info("Updated MINERU_TOKEN from settings")
-    if settings.image_caption_model:
+    else:
+        has_token = bool(current_app.config.get("MINERU_TOKEN"))
+        logger.info(f"MINERU_TOKEN using env value: {has_token}")
+
+    if settings.image_caption_model is not None and settings.image_caption_model != '':
         current_app.config["IMAGE_CAPTION_MODEL"] = settings.image_caption_model
         logger.info(f"Updated IMAGE_CAPTION_MODEL to: {settings.image_caption_model}")
-    if settings.output_language:
+    else:
+        logger.info(f"IMAGE_CAPTION_MODEL using env value: {current_app.config.get('IMAGE_CAPTION_MODEL')}")
+
+    if settings.output_language:  # 这个始终有默认值 'zh'
         current_app.config["OUTPUT_LANGUAGE"] = settings.output_language
         logger.info(f"Updated OUTPUT_LANGUAGE to: {settings.output_language}")
-    
+
     # Clear AI service cache if AI-related configuration changed
     if ai_config_changed:
         try:
