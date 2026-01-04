@@ -19,6 +19,15 @@ export interface ExportTask {
     percent?: number;
     current_step?: string;
     messages?: string[];
+    warnings?: string[];  // 导出警告信息
+    warning_details?: {   // 警告详细信息
+      style_extraction_failed?: Array<{ element_id: string; reason: string }>;
+      text_render_failed?: Array<{ text: string; reason: string }>;
+      image_add_failed?: Array<{ path: string; reason: string }>;
+      json_parse_failed?: Array<{ context: string; reason: string }>;
+      other_warnings?: string[];
+      total_warnings?: number;
+    };
   };
   downloadUrl?: string;
   filename?: string;

@@ -959,7 +959,7 @@ export const SlidePreview: React.FC = () => {
                   <ExportTasksPanel 
                     projectId={projectId} 
                     pages={currentProject?.pages || []}
-                    className="w-72 max-h-80 shadow-lg" 
+                    className="w-96 max-h-[28rem] shadow-lg" 
                   />
                 </div>
               )}

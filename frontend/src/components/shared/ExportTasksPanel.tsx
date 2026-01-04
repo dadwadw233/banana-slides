@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, X, Trash2, FileText, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Download, X, Trash2, FileText, Clock, CheckCircle, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { useExportTasksStore, type ExportTask, type ExportTaskType } from '@/store/useExportTasksStore';
 import type { Page } from '@/types';
 import { Button } from './Button';
@@ -68,7 +68,112 @@ const TaskStatusIcon: React.FC<{ status: ExportTask['status'] }> = ({ status }) 
   }
 };
 
+// 警告详情 Modal
+const WarningsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  warnings: string[];
+  warningDetails?: any;
+}> = ({ isOpen, onClose, warnings, warningDetails }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* 背景遮罩 */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      
+      {/* Modal 内容 */}
+      <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-amber-50">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-500" />
+            <h3 className="text-base font-semibold text-amber-800">
+              导出警告 ({warnings.length} 条)
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-amber-100 rounded transition-colors"
+          >
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        
+        {/* 警告列表 */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="space-y-2">
+            {warnings.map((warning, idx) => (
+              <div
+                key={idx}
+                className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800"
+              >
+                <span className="text-amber-500 mt-0.5">•</span>
+                <span className="break-words">{warning}</span>
+              </div>
+            ))}
+          </div>
+          
+          {/* 详细信息（如果有） */}
+          {warningDetails && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">详细信息</h4>
+              
+              {warningDetails.style_extraction_failed?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 mb-1">
+                    样式提取失败 ({warningDetails.style_extraction_failed.length} 个)
+                  </p>
+                  <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded max-h-32 overflow-y-auto">
+                    {warningDetails.style_extraction_failed.slice(0, 10).map((item: any, idx: number) => (
+                      <div key={idx} className="truncate" title={item.reason}>
+                        • {item.element_id}: {item.reason}
+                      </div>
+                    ))}
+                    {warningDetails.style_extraction_failed.length > 10 && (
+                      <div className="text-gray-400 mt-1">
+                        ... 还有 {warningDetails.style_extraction_failed.length - 10} 条
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {warningDetails.text_render_failed?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 mb-1">
+                    文本渲染失败 ({warningDetails.text_render_failed.length} 个)
+                  </p>
+                  <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded max-h-32 overflow-y-auto">
+                    {warningDetails.text_render_failed.slice(0, 10).map((item: any, idx: number) => (
+                      <div key={idx} className="truncate" title={item.reason}>
+                        • "{item.text}": {item.reason}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Footer */}
+        <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const TaskItem: React.FC<{ task: ExportTask; pages: Page[]; onRemove: () => void }> = ({ task, pages, onRemove }) => {
+  const [showWarningsModal, setShowWarningsModal] = useState(false);
+  
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
     return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -88,6 +193,8 @@ const TaskItem: React.FC<{ task: ExportTask; pages: Page[]; onRemove: () => void
 
   const progressPercent = getProgressPercent();
   const isProcessing = task.status === 'PROCESSING' || task.status === 'RUNNING' || task.status === 'PENDING';
+  
+  const hasWarnings = task.status === 'COMPLETED' && task.progress?.warnings && task.progress.warnings.length > 0;
 
   return (
     <div className="flex items-start gap-3 py-2.5 px-3 hover:bg-gray-50 rounded-lg transition-colors">
@@ -159,6 +266,33 @@ const TaskItem: React.FC<{ task: ExportTask; pages: Page[]; onRemove: () => void
           <p className="text-xs text-red-500 mt-1 truncate" title={task.errorMessage}>
             {task.errorMessage}
           </p>
+        )}
+        
+        {/* 显示完成后的警告信息（点击查看详情） */}
+        {hasWarnings && (
+          <>
+            <button
+              onClick={() => setShowWarningsModal(true)}
+              className="mt-1.5 w-full text-left px-2 py-1.5 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 transition-colors"
+            >
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle size={12} className="text-amber-500 flex-shrink-0" />
+                <span className="text-xs font-medium text-amber-700">
+                  {task.progress?.warnings?.length ?? 0} 条警告
+                </span>
+                <span className="text-[11px] text-amber-500 ml-auto">
+                  点击查看
+                </span>
+              </div>
+            </button>
+            
+            <WarningsModal
+              isOpen={showWarningsModal}
+              onClose={() => setShowWarningsModal(false)}
+              warnings={task.progress?.warnings ?? []}
+              warningDetails={task.progress?.warning_details}
+            />
+          </>
         )}
       </div>
       
@@ -250,7 +384,7 @@ export const ExportTasksPanel: React.FC<ExportTasksPanelProps> = ({ projectId, p
       
       {/* Content */}
       {isExpanded && (
-        <div className="max-h-64 overflow-y-auto">
+        <div className="max-h-96 overflow-y-auto">
           {/* Active tasks */}
           {activeTasks.length > 0 && (
             <div className="p-2 border-b border-gray-100">
