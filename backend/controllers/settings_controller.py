@@ -59,18 +59,31 @@ def update_settings():
                 return bad_request("AI provider format must be 'openai' or 'gemini'")
             settings.ai_provider_format = provider_format
 
-        # Update API configuration
-        if "api_base_url" in data:
-            raw_base_url = data["api_base_url"]
+        # Update Google/Gemini API configuration
+        if "google_api_base" in data:
+            raw_base_url = data["google_api_base"]
             # Empty string from frontend means "clear override, fall back to env/default"
             if raw_base_url is None:
-                settings.api_base_url = None
+                settings.google_api_base = None
             else:
                 value = str(raw_base_url).strip()
-                settings.api_base_url = value if value != "" else None
+                settings.google_api_base = value if value != "" else None
 
-        if "api_key" in data:
-            settings.api_key = data["api_key"]
+        if "google_api_key" in data:
+            settings.google_api_key = data["google_api_key"]
+
+        # Update OpenAI API configuration
+        if "openai_api_base" in data:
+            raw_base_url = data["openai_api_base"]
+            # Empty string from frontend means "clear override, fall back to env/default"
+            if raw_base_url is None:
+                settings.openai_api_base = None
+            else:
+                value = str(raw_base_url).strip()
+                settings.openai_api_base = value if value != "" else None
+
+        if "openai_api_key" in data:
+            settings.openai_api_key = data["openai_api_key"]
 
         # Update image generation configuration
         if "image_resolution" in data:
@@ -158,10 +171,20 @@ def reset_settings():
         # Reset to None to fall back to environment variables
         # 将可配置项重置为 None，使其回退到环境变量
         settings.ai_provider_format = None
-        settings.api_base_url = None
-        settings.api_key = None
+
+        # Google/Gemini API 配置
+        settings.google_api_base = None
+        settings.google_api_key = None
+
+        # OpenAI API 配置
+        settings.openai_api_base = None
+        settings.openai_api_key = None
+
+        # 模型配置
         settings.text_model = None
         settings.image_model = None
+
+        # MinerU 配置
         settings.mineru_api_base = None
         settings.mineru_token = None
         settings.image_caption_model = None
@@ -216,31 +239,51 @@ def _sync_settings_to_config(settings: Settings):
         # 数据库为 None/空，使用环境变量
         logger.info(f"AI_PROVIDER_FORMAT using env value: {current_app.config.get('AI_PROVIDER_FORMAT')}")
 
-    # Sync API configuration (只有数据库有值时才覆盖)
-    if settings.api_base_url is not None and settings.api_base_url != '':
+    # Sync Google/Gemini API configuration (分开处理)
+    if settings.google_api_base is not None and settings.google_api_base != '':
         old_base = current_app.config.get("GOOGLE_API_BASE")
-        if old_base != settings.api_base_url:
+        if old_base != settings.google_api_base:
             ai_config_changed = True
-            logger.info(f"API base URL changed: {old_base} -> {settings.api_base_url}")
-        current_app.config["GOOGLE_API_BASE"] = settings.api_base_url
-        current_app.config["OPENAI_API_BASE"] = settings.api_base_url
+            logger.info(f"GOOGLE API base URL changed: {old_base} -> {settings.google_api_base}")
+        current_app.config["GOOGLE_API_BASE"] = settings.google_api_base
     else:
         # 数据库为 None/空，使用环境变量
-        logger.info(f"API_BASE using env values: GOOGLE={current_app.config.get('GOOGLE_API_BASE')}, OPENAI={current_app.config.get('OPENAI_API_BASE')}")
+        logger.info(f"GOOGLE_API_BASE using env value: {current_app.config.get('GOOGLE_API_BASE')}")
 
-    if settings.api_key is not None and settings.api_key != '':
+    if settings.google_api_key is not None and settings.google_api_key != '':
         old_key = current_app.config.get("GOOGLE_API_KEY")
         # Only compare existence, not actual value for security
-        if (old_key is None) != (settings.api_key is None):
+        if (old_key is None) != (settings.google_api_key is None):
             ai_config_changed = True
-            logger.info("API key updated")
-        current_app.config["GOOGLE_API_KEY"] = settings.api_key
-        current_app.config["OPENAI_API_KEY"] = settings.api_key
+            logger.info("GOOGLE API key updated")
+        current_app.config["GOOGLE_API_KEY"] = settings.google_api_key
     else:
         # 数据库为 None/空，使用环境变量
         has_google = bool(current_app.config.get("GOOGLE_API_KEY"))
+        logger.info(f"GOOGLE_API_KEY using env value: {has_google}")
+
+    # Sync OpenAI API configuration (分开处理)
+    if settings.openai_api_base is not None and settings.openai_api_base != '':
+        old_base = current_app.config.get("OPENAI_API_BASE")
+        if old_base != settings.openai_api_base:
+            ai_config_changed = True
+            logger.info(f"OPENAI API base URL changed: {old_base} -> {settings.openai_api_base}")
+        current_app.config["OPENAI_API_BASE"] = settings.openai_api_base
+    else:
+        # 数据库为 None/空，使用环境变量
+        logger.info(f"OPENAI_API_BASE using env value: {current_app.config.get('OPENAI_API_BASE')}")
+
+    if settings.openai_api_key is not None and settings.openai_api_key != '':
+        old_key = current_app.config.get("OPENAI_API_KEY")
+        # Only compare existence, not actual value for security
+        if (old_key is None) != (settings.openai_api_key is None):
+            ai_config_changed = True
+            logger.info("OPENAI API key updated")
+        current_app.config["OPENAI_API_KEY"] = settings.openai_api_key
+    else:
+        # 数据库为 None/空，使用环境变量
         has_openai = bool(current_app.config.get("OPENAI_API_KEY"))
-        logger.info(f"API keys using env values: GOOGLE={has_google}, OPENAI={has_openai}")
+        logger.info(f"OPENAI_API_KEY using env value: {has_openai}")
 
     # Check model changes (只有数据库有值时才覆盖)
     if settings.text_model is not None and settings.text_model != '':

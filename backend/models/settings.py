@@ -11,8 +11,19 @@ class Settings(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, default=1)
     ai_provider_format = db.Column(db.String(20), nullable=False, default='gemini')  # AI提供商格式: openai, gemini
-    api_base_url = db.Column(db.String(500), nullable=True)  # API基础URL
-    api_key = db.Column(db.String(500), nullable=True)  # API密钥
+
+    # Google/Gemini API 配置
+    google_api_base = db.Column(db.String(500), nullable=True)  # Google API基础URL
+    google_api_key = db.Column(db.String(500), nullable=True)  # Google API密钥
+
+    # OpenAI API 配置
+    openai_api_base = db.Column(db.String(500), nullable=True)  # OpenAI API基础URL
+    openai_api_key = db.Column(db.String(500), nullable=True)  # OpenAI API密钥
+
+    # 旧字段（向后兼容，迁移后可以删除）
+    api_base_url = db.Column(db.String(500), nullable=True)  # 废弃：统一API基础URL
+    api_key = db.Column(db.String(500), nullable=True)  # 废弃：统一API密钥
+
     image_resolution = db.Column(db.String(20), nullable=False, default='2K')  # 图像清晰度: 1K, 2K, 4K
     image_aspect_ratio = db.Column(db.String(10), nullable=False, default='16:9')  # 图像比例: 16:9, 4:3, 1:1
     max_description_workers = db.Column(db.Integer, nullable=False, default=5)  # 描述生成最大工作线程数
@@ -32,14 +43,21 @@ class Settings(db.Model):
         """
         Convert to dictionary
 
-        数据库始终存储实际运行时的值（启动时环境变量会同步到数据库）
-        所以直接返回数据库值即可
+        返回分开的 Google 和 OpenAI 配置，前端根据 ai_provider_format 显示对应的配置
         """
         return {
             'id': self.id,
             'ai_provider_format': self.ai_provider_format,
-            'api_base_url': self.api_base_url,
-            'api_key_length': len(self.api_key) if self.api_key else 0,
+
+            # Google/Gemini API 配置
+            'google_api_base': self.google_api_base,
+            'google_api_key_length': len(self.google_api_key) if self.google_api_key else 0,
+
+            # OpenAI API 配置
+            'openai_api_base': self.openai_api_base,
+            'openai_api_key_length': len(self.openai_api_key) if self.openai_api_key else 0,
+
+            # 其他配置
             'image_resolution': self.image_resolution,
             'image_aspect_ratio': self.image_aspect_ratio,
             'max_description_workers': self.max_description_workers,
@@ -61,7 +79,7 @@ class Settings(db.Model):
 
         - 首次创建时，将可配置项初始化为 None，使其回退到环境变量
         - 只有必须有默认值的字段（如 image_resolution）才设置默认值
-        - 运行时优先级：数据库非 None 值 > 环境变量 > 代码默认值
+        - 分开存储 Google 和 OpenAI 的 API 配置
         """
         settings = Settings.query.first()
         if not settings:
@@ -72,17 +90,35 @@ class Settings(db.Model):
             # 只有 UI 必需的字段（如分辨率、比例）设置默认值
             settings = Settings(
                 ai_provider_format=None,  # None = 使用环境变量
-                api_base_url=None,  # None = 使用环境变量
-                api_key=None,  # None = 使用环境变量
+
+                # Google/Gemini API 配置
+                google_api_base=None,  # None = 使用环境变量
+                google_api_key=None,  # None = 使用环境变量
+
+                # OpenAI API 配置
+                openai_api_base=None,  # None = 使用环境变量
+                openai_api_key=None,  # None = 使用环境变量
+
+                # 旧字段（向后兼容）
+                api_base_url=None,
+                api_key=None,
+
+                # UI 配置
                 image_resolution=Config.DEFAULT_RESOLUTION,  # UI 必需默认值
                 image_aspect_ratio=Config.DEFAULT_ASPECT_RATIO,  # UI 必需默认值
                 max_description_workers=Config.MAX_DESCRIPTION_WORKERS,  # UI 必需默认值
                 max_image_workers=Config.MAX_IMAGE_WORKERS,  # UI 必需默认值
+
+                # 模型配置
                 text_model=None,  # None = 使用环境变量
                 image_model=None,  # None = 使用环境变量
+
+                # MinerU 配置
                 mineru_api_base=None,  # None = 使用环境变量
                 mineru_token=None,  # None = 使用环境变量
                 image_caption_model=None,  # None = 使用环境变量
+
+                # 语言配置
                 output_language='zh',  # 默认中文
             )
             settings.id = 1

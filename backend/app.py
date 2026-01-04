@@ -176,34 +176,47 @@ def _load_settings_to_config(app):
             app.config['AI_PROVIDER_FORMAT'] = settings.ai_provider_format
             logging.info(f"Using AI_PROVIDER_FORMAT from database: {settings.ai_provider_format}")
 
-        # Load API configuration (环境变量优先并同步到数据库)
-        provider_format = app.config.get('AI_PROVIDER_FORMAT', 'gemini').lower()
-        if provider_format == 'openai':
-            env_api_base = Config.OPENAI_API_BASE
-            env_api_key = Config.OPENAI_API_KEY
-        else:
-            env_api_base = Config.GOOGLE_API_BASE
-            env_api_key = Config.GOOGLE_API_KEY
-
-        if env_api_base:
-            if settings.api_base_url != env_api_base:
-                settings.api_base_url = env_api_base
+        # Load Google/Gemini API configuration (独立处理，不依赖当前 Provider)
+        if Config.GOOGLE_API_BASE:
+            if settings.google_api_base != Config.GOOGLE_API_BASE:
+                settings.google_api_base = Config.GOOGLE_API_BASE
                 db_updated = True
-            logging.info(f"Using API_BASE from env: {env_api_base}")
-        elif settings.api_base_url:
-            app.config['GOOGLE_API_BASE'] = settings.api_base_url
-            app.config['OPENAI_API_BASE'] = settings.api_base_url
-            logging.info(f"Using API_BASE from database: {settings.api_base_url}")
+            app.config['GOOGLE_API_BASE'] = Config.GOOGLE_API_BASE
+            logging.info(f"Using GOOGLE_API_BASE from env: {Config.GOOGLE_API_BASE}")
+        elif settings.google_api_base:
+            app.config['GOOGLE_API_BASE'] = settings.google_api_base
+            logging.info(f"Using GOOGLE_API_BASE from database: {settings.google_api_base}")
 
-        if env_api_key:
-            if settings.api_key != env_api_key:
-                settings.api_key = env_api_key
+        if Config.GOOGLE_API_KEY:
+            if settings.google_api_key != Config.GOOGLE_API_KEY:
+                settings.google_api_key = Config.GOOGLE_API_KEY
                 db_updated = True
-            logging.info("Using API_KEY from env (value hidden)")
-        elif settings.api_key:
-            app.config['GOOGLE_API_KEY'] = settings.api_key
-            app.config['OPENAI_API_KEY'] = settings.api_key
-            logging.info("Using API_KEY from database (value hidden)")
+            app.config['GOOGLE_API_KEY'] = Config.GOOGLE_API_KEY
+            logging.info("Using GOOGLE_API_KEY from env (value hidden)")
+        elif settings.google_api_key:
+            app.config['GOOGLE_API_KEY'] = settings.google_api_key
+            logging.info("Using GOOGLE_API_KEY from database (value hidden)")
+
+        # Load OpenAI API configuration (独立处理，不依赖当前 Provider)
+        if Config.OPENAI_API_BASE:
+            if settings.openai_api_base != Config.OPENAI_API_BASE:
+                settings.openai_api_base = Config.OPENAI_API_BASE
+                db_updated = True
+            app.config['OPENAI_API_BASE'] = Config.OPENAI_API_BASE
+            logging.info(f"Using OPENAI_API_BASE from env: {Config.OPENAI_API_BASE}")
+        elif settings.openai_api_base:
+            app.config['OPENAI_API_BASE'] = settings.openai_api_base
+            logging.info(f"Using OPENAI_API_BASE from database: {settings.openai_api_base}")
+
+        if Config.OPENAI_API_KEY:
+            if settings.openai_api_key != Config.OPENAI_API_KEY:
+                settings.openai_api_key = Config.OPENAI_API_KEY
+                db_updated = True
+            app.config['OPENAI_API_KEY'] = Config.OPENAI_API_KEY
+            logging.info("Using OPENAI_API_KEY from env (value hidden)")
+        elif settings.openai_api_key:
+            app.config['OPENAI_API_KEY'] = settings.openai_api_key
+            logging.info("Using OPENAI_API_KEY from database (value hidden)")
 
         # Load model configuration (环境变量优先并同步到数据库)
         if Config.TEXT_MODEL:
