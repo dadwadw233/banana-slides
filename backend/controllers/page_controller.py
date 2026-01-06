@@ -5,9 +5,11 @@ import logging
 from flask import Blueprint, request, current_app
 from models import db, Project, Page, PageImageVersion, Task
 from utils import success_response, error_response, not_found, bad_request
+from utils.auth_middleware import get_current_user_optional
 from services import FileService, ProjectContext
 from services.ai_service_manager import get_ai_service
 from services.task_manager import task_manager, generate_single_page_image_task, edit_page_image_task
+from services.quota_service import QuotaService
 from datetime import datetime
 from pathlib import Path
 from werkzeug.utils import secure_filename
@@ -43,7 +45,6 @@ def create_page(project_id):
         if not data or 'order_index' not in data:
             return bad_request("order_index is required")
         
-        # Create new page
         page = Page(
             project_id=project_id,
             order_index=data['order_index'],
@@ -56,7 +57,7 @@ def create_page(project_id):
         
         db.session.add(page)
         
-        # Update other pages' order_index if necessary
+        # Reorder subsequent pages to make room for the new page
         other_pages = Page.query.filter(
             Page.project_id == project_id,
             Page.order_index >= data['order_index']
@@ -70,118 +71,6 @@ def create_page(project_id):
         db.session.commit()
         
         return success_response(page.to_dict(), status_code=201)
-    
-    except Exception as e:
-        db.session.rollback()
-        return error_response('SERVER_ERROR', str(e), 500)
-
-
-@page_bp.route('/<project_id>/pages/<page_id>', methods=['DELETE'])
-def delete_page(project_id, page_id):
-    """
-    DELETE /api/projects/{project_id}/pages/{page_id} - Delete page
-    """
-    try:
-        page = Page.query.get(page_id)
-        
-        if not page or page.project_id != project_id:
-            return not_found('Page')
-        
-        # Delete page image if exists
-        file_service = FileService(current_app.config['UPLOAD_FOLDER'])
-        file_service.delete_page_image(project_id, page_id)
-        
-        # Delete page
-        db.session.delete(page)
-        
-        # Update project
-        project = Project.query.get(project_id)
-        if project:
-            project.updated_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        return success_response(message="Page deleted successfully")
-    
-    except Exception as e:
-        db.session.rollback()
-        return error_response('SERVER_ERROR', str(e), 500)
-
-
-@page_bp.route('/<project_id>/pages/<page_id>/outline', methods=['PUT'])
-def update_page_outline(project_id, page_id):
-    """
-    PUT /api/projects/{project_id}/pages/{page_id}/outline - Edit page outline
-    
-    Request body:
-    {
-        "outline_content": {"title": "...", "points": [...]}
-    }
-    """
-    try:
-        page = Page.query.get(page_id)
-        
-        if not page or page.project_id != project_id:
-            return not_found('Page')
-        
-        data = request.get_json()
-        
-        if not data or 'outline_content' not in data:
-            return bad_request("outline_content is required")
-        
-        page.set_outline_content(data['outline_content'])
-        page.updated_at = datetime.utcnow()
-        
-        # Update project
-        project = Project.query.get(project_id)
-        if project:
-            project.updated_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        return success_response(page.to_dict())
-    
-    except Exception as e:
-        db.session.rollback()
-        return error_response('SERVER_ERROR', str(e), 500)
-
-
-@page_bp.route('/<project_id>/pages/<page_id>/description', methods=['PUT'])
-def update_page_description(project_id, page_id):
-    """
-    PUT /api/projects/{project_id}/pages/{page_id}/description - Edit description
-    
-    Request body:
-    {
-        "description_content": {
-            "title": "...",
-            "text_content": ["...", "..."],
-            "layout_suggestion": "..."
-        }
-    }
-    """
-    try:
-        page = Page.query.get(page_id)
-        
-        if not page or page.project_id != project_id:
-            return not_found('Page')
-        
-        data = request.get_json()
-        
-        if not data or 'description_content' not in data:
-            return bad_request("description_content is required")
-        
-        page.set_description_content(data['description_content'])
-        page.updated_at = datetime.utcnow()
-        
-        # Update project
-        project = Project.query.get(project_id)
-        if project:
-            project.updated_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        return success_response(page.to_dict())
     
     except Exception as e:
         db.session.rollback()
@@ -207,6 +96,11 @@ def generate_page_description(project_id, page_id):
         project = Project.query.get(project_id)
         if not project:
             return not_found('Project')
+        
+        user = get_current_user_optional()
+        if user:
+            if not QuotaService.check_sufficient(user, 'generate_description'):
+                return error_response('INSUFFICIENT_QUOTA', '配额不足', 402)
         
         data = request.get_json() or {}
         force_regenerate = data.get('force_regenerate', False)
@@ -265,6 +159,18 @@ def generate_page_description(project_id, page_id):
         
         db.session.commit()
         
+        if user:
+            try:
+                QuotaService.consume(
+                    user, 
+                    'generate_description', 
+                    project_id=project_id, 
+                    description=f'生成页面 {page_id} 描述'
+                )
+            except Exception as e:
+                logger.error(f"Failed to consume quota for user {user.id}: {e}")
+                # Don't fail the request if quota consumption fails, but log it
+        
         return success_response(page.to_dict())
     
     except Exception as e:
@@ -293,6 +199,11 @@ def generate_page_image(project_id, page_id):
         if not project:
             return not_found('Project')
         
+        user = get_current_user_optional()
+        if user:
+            if not QuotaService.check_sufficient(user, 'generate_image'):
+                return error_response('INSUFFICIENT_QUOTA', '配额不足', 402)
+        
         data = request.get_json() or {}
         use_template = data.get('use_template', True)
         force_regenerate = data.get('force_regenerate', False)
@@ -310,50 +221,13 @@ def generate_page_image(project_id, page_id):
         # Reconstruct full outline with part structure
         all_pages = Page.query.filter_by(project_id=project_id).order_by(Page.order_index).all()
         outline = []
-        current_part = None
-        current_part_pages = []
-        
         for p in all_pages:
             oc = p.get_outline_content()
-            if not oc:
-                continue
-                
-            page_data = oc.copy()
-            
-            # 如果当前页面属于一个 part
-            if p.part:
-                # 如果这是新的 part，先保存之前的 part（如果有）
-                if current_part and current_part != p.part:
-                    outline.append({
-                        "part": current_part,
-                        "pages": current_part_pages
-                    })
-                    current_part_pages = []
-                
-                current_part = p.part
-                # 移除 part 字段，因为它在顶层
-                if 'part' in page_data:
-                    del page_data['part']
-                current_part_pages.append(page_data)
-            else:
-                # 如果当前页面不属于任何 part，先保存之前的 part（如果有）
-                if current_part:
-                    outline.append({
-                        "part": current_part,
-                        "pages": current_part_pages
-                    })
-                    current_part = None
-                    current_part_pages = []
-                
-                # 直接添加页面
+            if oc:
+                page_data = oc.copy()
+                if p.part:
+                    page_data['part'] = p.part
                 outline.append(page_data)
-        
-        # 保存最后一个 part（如果有）
-        if current_part:
-            outline.append({
-                "part": current_part,
-                "pages": current_part_pages
-            })
         
         # Initialize services
         ai_service = get_ai_service()
@@ -434,7 +308,8 @@ def generate_page_image(project_id, page_id):
             current_app.config['DEFAULT_RESOLUTION'],
             app,
             combined_requirements if combined_requirements.strip() else None,
-            language
+            language,
+            user.id if user else None
         )
         
         # Return task_id immediately
@@ -482,6 +357,11 @@ def edit_page_image(project_id, page_id):
         project = Project.query.get(project_id)
         if not project:
             return not_found('Project')
+        
+        user = get_current_user_optional()
+        if user:
+            if not QuotaService.check_sufficient(user, 'edit_image'):
+                return error_response('INSUFFICIENT_QUOTA', '配额不足', 402)
         
         # Initialize services
         ai_service = get_ai_service()
@@ -607,7 +487,8 @@ def edit_page_image(project_id, page_id):
             original_description,
             additional_ref_images if additional_ref_images else None,
             str(temp_dir) if temp_dir else None,
-            app
+            app,
+            user.id if user else None
         )
         
         # Return task_id immediately

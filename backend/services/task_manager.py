@@ -8,9 +8,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any
 from datetime import datetime
 from sqlalchemy import func
-from models import db, Task, Page, Material, PageImageVersion
+from models import db, Task, Page, Material, PageImageVersion, User
 from utils import get_filtered_pages
 from pathlib import Path
+from services.quota_service import QuotaService
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,8 @@ def save_image_with_version(image, project_id: str, page_id: str, file_service,
 def generate_descriptions_task(task_id: str, project_id: str, ai_service, 
                                project_context, outline: List[Dict], 
                                max_workers: int = 5, app=None,
-                               language: str = None):
+                               language: str = None,
+                               user_id: int = None):
     """
     Background task for generating page descriptions
     Based on demo.py gen_desc() with parallel processing
@@ -238,6 +240,20 @@ def generate_descriptions_task(task_id: str, project_id: str, ai_service,
                             page.set_description_content(desc_content)
                             page.status = 'DESCRIPTION_GENERATED'
                             completed += 1
+                            
+                            # Consume quota
+                            if user_id:
+                                try:
+                                    user = User.query.get(user_id)
+                                    if user:
+                                        QuotaService.consume(
+                                            user, 
+                                            'generate_description', 
+                                            project_id=project_id, 
+                                            description=f'Async generate desc page {page_id}'
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Failed to consume quota for user {user_id}: {e}")
                         
                         db.session.commit()
                     
@@ -280,7 +296,8 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                         resolution: str = "2K", app=None,
                         extra_requirements: str = None,
                         language: str = None,
-                        page_ids: list = None):
+                        page_ids: list = None,
+                        user_id: int = None):
     """
     Background task for generating page images
     Based on demo.py gen_images_parallel()
@@ -340,7 +357,6 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                         # Update page status
                         page_obj.status = 'GENERATING'
                         db.session.commit()
-                        logger.debug(f"Page {page_id} status updated to GENERATING")
                         
                         # Get description content
                         desc_content = page_obj.get_description_content()
@@ -404,6 +420,20 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                         image_path, next_version = save_image_with_version(
                             image, project_id, page_id, file_service, page_obj=page_obj
                         )
+                        
+                        # Consume quota if user_id provided
+                        if user_id:
+                            try:
+                                user = User.query.get(user_id)
+                                if user:
+                                    QuotaService.consume(
+                                        user, 
+                                        'generate_image', 
+                                        project_id=project_id, 
+                                        description=f'Async bulk generate page {page_id}'
+                                    )
+                            except Exception as e:
+                                logger.error(f"Failed to consume quota for user {user_id}: {e}")
                         
                         return (page_id, image_path, None)
                         
@@ -478,7 +508,8 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
                                     use_template: bool = True, aspect_ratio: str = "16:9",
                                     resolution: str = "2K", app=None,
                                     extra_requirements: str = None,
-                                    language: str = None):
+                                    language: str = None,
+                                    user_id: int = None):
     """
     Background task for generating a single page image
     
@@ -566,6 +597,22 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
                 image, project_id, page_id, file_service, page_obj=page
             )
             
+            # Consume quota if user_id provided
+            if user_id:
+                logger.info(f"Attempting to consume quota for user {user_id}")
+                try:
+                    user = User.query.get(user_id)
+                    if user:
+                        QuotaService.consume(
+                            user, 
+                            'generate_image', 
+                            project_id=project_id, 
+                            description=f'Async generate page {page_id}'
+                        )
+                        logger.info(f"Consumed quota for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to consume quota for user {user_id}: {e}")
+            
             # Mark task as completed
             task.status = 'COMPLETED'
             task.completed_at = datetime.utcnow()
@@ -603,7 +650,8 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
                          aspect_ratio: str = "16:9", resolution: str = "2K",
                          original_description: str = None,
                          additional_ref_images: List[str] = None,
-                         temp_dir: str = None, app=None):
+                         temp_dir: str = None, app=None,
+                         user_id: int = None):
     """
     Background task for editing a page image
     
@@ -664,6 +712,20 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
             image_path, next_version = save_image_with_version(
                 image, project_id, page_id, file_service, page_obj=page
             )
+            
+            # Consume quota if user_id provided
+            if user_id:
+                try:
+                    user = User.query.get(user_id)
+                    if user:
+                        QuotaService.consume(
+                            user, 
+                            'edit_image', 
+                            project_id=project_id, 
+                            description=f'Async edit page {page_id}'
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to consume quota for user {user_id}: {e}")
             
             # Mark task as completed
             task.status = 'COMPLETED'
@@ -810,7 +872,8 @@ def export_editable_pptx_with_recursive_analysis_task(
     page_ids: list = None,
     max_depth: int = 2,
     max_workers: int = 4,
-    app=None
+    app=None,
+    user_id: int = None
 ):
     """
     使用递归图片可编辑化分析导出可编辑PPTX的后台任务
@@ -985,6 +1048,20 @@ def export_editable_pptx_with_recursive_analysis_task(
                 })
                 db.session.commit()
                 logger.info(f"✓ 任务 {task_id} 完成 - 递归分析导出成功（深度={max_depth}）")
+                
+                # Consume quota
+                if user_id:
+                    try:
+                        user = User.query.get(user_id)
+                        if user:
+                            QuotaService.consume(
+                                user, 
+                                'export_editable_pptx', 
+                                project_id=project_id, 
+                                description=f'Async export editable pptx'
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed to consume quota for user {user_id}: {e}")
         
         except Exception as e:
             import traceback

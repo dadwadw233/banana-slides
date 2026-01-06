@@ -23,6 +23,8 @@ from utils import (
     success_response, error_response, not_found, bad_request,
     parse_page_ids_from_body, get_filtered_pages
 )
+from utils.auth_middleware import get_current_user_optional
+from services.quota_service import QuotaService
 
 logger = logging.getLogger(__name__)
 
@@ -584,6 +586,15 @@ def generate_descriptions(project_id):
         if not pages:
             return bad_request("No pages found for project")
         
+        # Quota check
+        user = get_current_user_optional()
+        if user:
+            # 0.1 per page
+            if not QuotaService.check_sufficient(user, 'generate_description', count=len(pages)):
+                cost_per_item = QuotaService.QUOTA_COSTS.get('generate_description', 0.1)
+                total_cost = int(cost_per_item * len(pages))
+                return error_response('INSUFFICIENT_QUOTA', f'配额不足，需要 {total_cost} 次', 402)
+        
         # Reconstruct outline from pages with part structure
         outline = _reconstruct_outline_from_pages(pages)
         
@@ -627,7 +638,8 @@ def generate_descriptions(project_id):
             outline,
             max_workers,
             app,
-            language
+            language,
+            user.id if user else None
         )
         
         # Update project status
@@ -680,6 +692,15 @@ def generate_images(project_id):
         if not pages:
             return bad_request("No pages found for project")
         
+        # Quota check
+        user = get_current_user_optional()
+        if user:
+            # 1.0 per page
+            if not QuotaService.check_sufficient(user, 'generate_image', count=len(pages)):
+                cost_per_item = QuotaService.QUOTA_COSTS.get('generate_image', 1)
+                total_cost = int(cost_per_item * len(pages))
+                return error_response('INSUFFICIENT_QUOTA', f'配额不足，需要 {total_cost} 次', 402)
+        
         # Reconstruct outline from pages with part structure
         outline = _reconstruct_outline_from_pages(pages)
         
@@ -706,14 +727,9 @@ def generate_images(project_id):
         # Get singleton AI service instance
         ai_service = get_ai_service()
         
-        from services import FileService
+        # Get file service instance
+        from services.file_service import FileService
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
-        
-        # 合并额外要求和风格描述
-        combined_requirements = project.extra_requirements or ""
-        if project.template_style:
-            style_requirement = f"\n\nppt页面风格描述：\n\n{project.template_style}"
-            combined_requirements = combined_requirements + style_requirement
         
         # Get app instance for background task
         app = current_app._get_current_object()
@@ -731,9 +747,10 @@ def generate_images(project_id):
             current_app.config['DEFAULT_ASPECT_RATIO'],
             current_app.config['DEFAULT_RESOLUTION'],
             app,
-            combined_requirements if combined_requirements.strip() else None,
+            project.extra_requirements,
             language,
-            selected_page_ids if selected_page_ids else None
+            selected_page_ids if selected_page_ids else None,
+            user.id if user else None
         )
         
         # Update project status

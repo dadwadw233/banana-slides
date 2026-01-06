@@ -11,8 +11,10 @@ from utils import (
     error_response, not_found, bad_request, success_response,
     parse_page_ids_from_query, parse_page_ids_from_body, get_filtered_pages
 )
+from utils.auth_middleware import get_current_user_optional
 from services import ExportService, FileService
 from services.ai_service_manager import get_ai_service
+from services.quota_service import QuotaService
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,12 @@ def export_pptx(project_id):
         
         if not project:
             return not_found('Project')
+        
+        # Quota check
+        user = get_current_user_optional()
+        if user:
+            if not QuotaService.check_sufficient(user, 'export_pptx'):
+                return error_response('INSUFFICIENT_QUOTA', '配额不足', 402)
         
         # Get page_ids from query params and fetch filtered pages
         selected_page_ids = parse_page_ids_from_query(request)
@@ -79,6 +87,13 @@ def export_pptx(project_id):
 
         # Generate PPTX file on disk
         ExportService.create_pptx_from_images(image_paths, output_file=output_path)
+        
+        # Consume quota
+        if user:
+            try:
+                QuotaService.consume(user, 'export_pptx', project_id=project_id, description='Export PPTX')
+            except Exception as e:
+                logger.error(f"Failed to consume quota for user {user.id}: {e}")
 
         # Build download URLs
         download_path = f"/files/{project_id}/exports/{filename}"
@@ -214,6 +229,12 @@ def export_editable_pptx(project_id):
         if not project:
             return not_found('Project')
         
+        # Quota check
+        user = get_current_user_optional()
+        if user:
+            if not QuotaService.check_sufficient(user, 'export_editable_pptx'):
+                return error_response('INSUFFICIENT_QUOTA', '配额不足', 402)
+        
         # Get parameters from request body
         data = request.get_json() or {}
         
@@ -278,7 +299,8 @@ def export_editable_pptx(project_id):
             page_ids=selected_page_ids if selected_page_ids else None,
             max_depth=max_depth,
             max_workers=max_workers,
-            app=app
+            app=app,
+            user_id=user.id if user else None
         )
         
         logger.info(f"Submitted recursive export task {task.id} to task manager")
