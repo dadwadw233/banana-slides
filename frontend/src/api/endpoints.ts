@@ -829,3 +829,91 @@ export const resetSettings = async (): Promise<ApiResponse<Settings>> => {
   const response = await apiClient.post<ApiResponse<Settings>>('/api/settings/reset');
   return response.data;
 };
+
+// ===== 用户认证 =====
+
+export interface User {
+  id: number;
+  email: string;
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  quota_balance: number;
+  role: string;
+  status: string;
+  is_verified: boolean;
+  is_email_verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthResponse {
+  user: User;
+  access_token: string;
+  token_type: string;
+}
+
+export const register = async (
+  email: string,
+  password: string
+): Promise<ApiResponse<AuthResponse>> => {
+  const response = await apiClient.post<ApiResponse<AuthResponse>>('/api/auth/register', {
+    email,
+    password,
+  });
+  return response.data;
+};
+
+export const login = async (
+  email: string,
+  password: string
+): Promise<ApiResponse<AuthResponse>> => {
+  const response = await apiClient.post<ApiResponse<AuthResponse>>('/api/auth/login', {
+    email,
+    password,
+  });
+  return response.data;
+};
+
+export const getCurrentUser = async (): Promise<ApiResponse<{ user: User }>> => {
+  const response = await apiClient.get<ApiResponse<{ user: User }>>('/api/auth/me');
+  return response.data;
+};
+
+// ===== 配额管理 =====
+
+export interface QuotaBalance {
+  user_id: number;
+  balance: number;
+}
+
+export interface QuotaTransaction {
+  id: number;
+  user_id: number;
+  amount: number;
+  balance_after: number;
+  type: string;
+  description: string | null;
+  created_at: string;
+}
+
+export const getQuotaBalance = async (): Promise<ApiResponse<QuotaBalance>> => {
+  const response = await apiClient.get<ApiResponse<QuotaBalance>>('/api/quota/balance');
+  return response.data;
+};
+
+export const getQuotaTransactions = async (
+  limit?: number,
+  offset?: number
+): Promise<ApiResponse<{ transactions: QuotaTransaction[]; total: number }>> => {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.append('limit', limit.toString());
+  if (offset !== undefined) params.append('offset', offset.toString());
+
+  const queryString = params.toString();
+  const url = `/api/quota/transactions${queryString ? `?${queryString}` : ''}`;
+  const response = await apiClient.get<
+    ApiResponse<{ transactions: QuotaTransaction[]; total: number }>
+  >(url);
+  return response.data;
+};
