@@ -20,6 +20,8 @@ services:
     # environment:
     #   - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-service-account.json
     volumes:
+      # Mount source code for hot reload
+      - ./backend:/app/backend
       # 持久化数据库
       - ./backend/instance:/app/backend/instance
       # 持久化上传的文件
