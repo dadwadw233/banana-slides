@@ -4,7 +4,10 @@ import { ArrowLeft, ArrowRight, FileText, Sparkles } from 'lucide-react';
 import { Button, Loading, useToast, useConfirm, AiRefineInput, FilePreviewModal, ProjectResourcesList } from '@/components/shared';
 import { DescriptionCard } from '@/components/preview/DescriptionCard';
 import { useProjectStore } from '@/store/useProjectStore';
-import { refineDescriptions } from '@/api/endpoints';
+import { refineDescriptions, getQuotaBalance } from '@/api/endpoints';
+import { useAuthStore } from '@/store/useAuthStore';
+import { QuotaDisplay } from '@/components/shared/QuotaDisplay';
+import { UserMenu } from '@/components/shared/UserMenu';
 
 export const DetailEditor: React.FC = () => {
   const navigate = useNavigate();
@@ -41,6 +44,24 @@ export const DetailEditor: React.FC = () => {
 
 
   const handleGenerateAll = async () => {
+    // Check quota if authenticated
+    const { isAuthenticated } = useAuthStore.getState();
+    if (isAuthenticated) {
+      try {
+        const count = currentProject?.pages.length || 0;
+        const cost = Math.floor(count * 0.1);
+        if (cost >= 1) {
+            const res = await getQuotaBalance();
+            if (res.data && res.data.balance < cost) {
+               show({ message: `配额不足！需要 ${cost} 次`, type: 'error' });
+               return;
+            }
+        }
+      } catch (error) {
+        // Ignore check if failed
+      }
+    }
+
     const hasDescriptions = currentProject?.pages.some(
       (p) => p.description_content
     );
@@ -169,6 +190,8 @@ export const DetailEditor: React.FC = () => {
           
           {/* 右侧：操作按钮 */}
           <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+            <QuotaDisplay className="hidden md:flex" />
+            <UserMenu className="hidden md:block" />
             <Button
               variant="secondary"
               size="sm"

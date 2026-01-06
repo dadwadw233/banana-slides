@@ -29,10 +29,13 @@ import { listUserTemplates, type UserTemplate } from '@/api/endpoints';
 import { materialUrlToFile } from '@/components/shared/MaterialSelector';
 import type { Material } from '@/api/endpoints';
 import { SlideCard } from '@/components/preview/SlideCard';
+import { QuotaDisplay } from '@/components/shared/QuotaDisplay';
+import { UserMenu } from '@/components/shared/UserMenu';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useExportTasksStore, type ExportTaskType } from '@/store/useExportTasksStore';
 import { getImageUrl } from '@/api/client';
-import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportEditablePPTX as apiExportEditablePPTX } from '@/api/endpoints';
+import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportEditablePPTX as apiExportEditablePPTX, getQuotaBalance } from '@/api/endpoints';
 import type { ImageVersion, DescriptionContent } from '@/types';
 import { normalizeErrorMessage } from '@/utils';
 
@@ -199,6 +202,21 @@ export const SlidePreview: React.FC = () => {
     const pageIds = getSelectedPageIdsForExport();
     const isPartialGenerate = isMultiSelectMode && selectedPageIds.size > 0;
     
+    // Check quota if authenticated
+    const { isAuthenticated } = useAuthStore.getState();
+    if (isAuthenticated) {
+      try {
+        const count = isPartialGenerate ? selectedPageIds.size : currentProject?.pages.length || 0;
+        const res = await getQuotaBalance();
+        if (res.data && res.data.balance < count) {
+          show({ message: `配额不足！需要 ${count} 次，剩余 ${res.data.balance} 次`, type: 'error' });
+          return;
+        }
+      } catch (error) {
+        // Ignore check if failed
+      }
+    }
+    
     // 检查要生成的页面中是否有已有图片的
     const pagesToGenerate = isPartialGenerate
       ? currentProject?.pages.filter(p => p.id && selectedPageIds.has(p.id))
@@ -232,6 +250,20 @@ export const SlidePreview: React.FC = () => {
     if (pageGeneratingTasks[page.id]) {
       show({ message: '该页面正在生成中，请稍候...', type: 'info' });
       return;
+    }
+    
+    // Check quota if authenticated
+    const { isAuthenticated } = useAuthStore.getState();
+    if (isAuthenticated) {
+      try {
+        const res = await getQuotaBalance();
+        if (res.data && res.data.balance < 1) {
+          show({ message: '配额不足！需要 1 次', type: 'error' });
+          return;
+        }
+      } catch (error) {
+        // Ignore check if failed
+      }
     }
     
     try {
@@ -894,6 +926,9 @@ export const SlidePreview: React.FC = () => {
           >
             <span className="hidden lg:inline">刷新</span>
           </Button>
+          
+          <QuotaDisplay className="hidden md:flex ml-2" />
+          <UserMenu className="ml-2 hidden md:block" />
           
           {/* 导出任务按钮 */}
           {exportTasks.filter(t => t.projectId === projectId).length > 0 && (

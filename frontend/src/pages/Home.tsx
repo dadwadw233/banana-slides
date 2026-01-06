@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, FileText, FileEdit, ImagePlus, Paperclip, Palette, Lightbulb, Search, Settings } from 'lucide-react';
 import { Button, Textarea, Card, useToast, MaterialGeneratorModal, ReferenceFileList, ReferenceFileSelector, FilePreviewModal, ImagePreviewList } from '@/components/shared';
+import { UserMenu } from '@/components/shared/UserMenu';
 import { TemplateSelector, getTemplateFile } from '@/components/shared/TemplateSelector';
 import { listUserTemplates, type UserTemplate, uploadReferenceFile, type ReferenceFile, associateFileToProject, triggerFileParse, uploadMaterial, associateMaterialsToProject } from '@/api/endpoints';
 import { useProjectStore } from '@/store/useProjectStore';
@@ -514,6 +515,7 @@ export const Home: React.FC = () => {
               <span className="sm:hidden">设</span>
             </Button>
             <Button variant="ghost" size="sm" className="hidden md:inline-flex hover:bg-banana-50/50">帮助</Button>
+            <UserMenu className="ml-2" />
           </div>
         </div>
       </nav>
